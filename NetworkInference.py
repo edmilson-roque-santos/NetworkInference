@@ -72,7 +72,8 @@ class NetworkInference:
         self.Sinit = None
         self.Sfinal = None
         #TO DO,Add all of the other listed methods. These will become available in future renditions of the software.
-        self.Available_Inference_Methods = ['Standard_oCSE', 'Alternative_oCSE']#['Standard_oCSE', 'Alternative_oCSE', 'Lasso', 'Graphical_Lasso', 
+        self.Available_Inference_Methods = ['Standard_oCSE', 'Alternative_oCSE']
+                                           #['Standard_oCSE', 'Alternative_oCSE', 'Lasso', 'Graphical_Lasso', 
                                            # 'GLM_Lasso', 'Kernel_Lasso','Entropic_Regression','Convergent_Cross_Mapping',
                                            # 'PCMCI','PCMCIplus','LPMCI','Partial_Correlation','GPDC']
         self.DataType = 'Continuous'
@@ -517,7 +518,7 @@ class NetworkInference:
         self.XY = XY
          
         
-    def Gen_Stochastic_Gaussian(self,Epsilon=1e-1):
+    def Gen_Stochastic_Gaussian(self,Epsilon=1e-1, seed = 1):
         """Linear stochastic Gaussian process"""
         
         if self.NetworkAdjacency is None:
@@ -526,10 +527,16 @@ class NetworkInference:
         if self.Rho is None:
             raise ValueError("Missing Rho, please set it using set_Rho")
         
+        np.random.seed(seed)
         self.Gaussian_Epsilon = Epsilon
         R = 2*(np.random.rand(self.n,self.n)-0.5)
-        A = np.array(self.NetworkAdjacency) * R
-        A = A/np.max(np.abs(np.linalg.eigvals(A)))
+        A = np.array(self.NetworkAdjacency) #* R
+        
+        spec_radius = np.max(np.abs(np.linalg.eigvals(A)))
+        
+        if spec_radius > 0:
+            A = A/np.max(np.abs(np.linalg.eigvals(A)))
+            
         A = A*self.Rho
         self.Lin_Stoch_Gaussian_Adjacency = A
         XY = np.zeros((self.T,self.n))
@@ -747,7 +754,7 @@ class NetworkInference:
             MIXYZ = self.MutualInfo_KNN(XcatY,self.Z)
             MIXZ = self.MutualInfo_KNN(X,self.Z)
            
-            return np.max([MIXYZ-MIXZ,0])        
+            return np.max([MIXYZ-MIXZ, 0])        
  
 
     def Entropy_GKNN(self,X):
