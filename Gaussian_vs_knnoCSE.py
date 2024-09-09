@@ -12,7 +12,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 import scipy.special
 
-
 from NetworkInference import NetworkInference
 
 def permut(N, k):
