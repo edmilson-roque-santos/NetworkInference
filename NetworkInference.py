@@ -9,6 +9,7 @@ from sklearn.neighbors import KernelDensity
 from scipy.spatial import distance
 from scipy.special import gamma as Gamma
 from scipy.special import digamma as Digamma
+from scipy import spatial as ss
 import scipy.stats as SStats
 import numpy as np
 import itertools
@@ -33,6 +34,7 @@ class NetworkInference:
         #Time series stuff
         self.n = 100
         self.T = 200
+        
         
         #Initialize time series to nothing, this must be entered or generated
         self.X = None
@@ -161,6 +163,15 @@ class NetworkInference:
     
     def set_T(self,T):
         self.T = T
+        
+    def set_sampling_rate(self, sr):
+        self.sampling_rate = sr
+        self.Tfinal = self.T*self.sampling_rate
+        self.Ttotal = self.T*(self.sampling_rate + 1)
+        self.sampling_vector = np.arange(0, 
+                                         self.Tfinal, 
+                                         self.sampling_rate, 
+                                         dtype = int)
         
     def set_X(self,X):
         """The time series (T x n) which is the set of predictors"""
@@ -529,7 +540,7 @@ class NetworkInference:
         
         np.random.seed(seed)
         self.Gaussian_Epsilon = Epsilon
-        R = 2*(np.random.rand(self.n,self.n)-0.5)
+        #R = 2*(np.random.rand(self.n,self.n)-0.5)
         A = np.array(self.NetworkAdjacency) #* R
         
         spec_radius = np.max(np.abs(np.linalg.eigvals(A)))
@@ -539,9 +550,9 @@ class NetworkInference:
             
         A = A*self.Rho
         self.Lin_Stoch_Gaussian_Adjacency = A
-        XY = np.zeros((self.T,self.n))
+        XY = np.zeros((self.Ttotal,self.n))
         XY[0,:] = Epsilon*np.random.randn(1,self.n)
-        for i in range(1,self.T):
+        for i in range(1,self.Ttotal):
             Xi = np.dot(A,np.matrix(XY[i-1,:]).T) + Epsilon*np.random.randn(self.n,1)
             XY[i,:] = Xi.T
         self.XY = XY
@@ -714,7 +725,7 @@ class NetworkInference:
         kde = KernelDensity(bandwidth=BandWidth,kernel=self.KernelType).fit(X)
     
         
-    def MutualInfo_KNN(self,X,Y):
+    def MutualInfo_KNN_method1(self,X,Y):
         """The Max Norm version of the Kraskov, Stogbauer, Grassberger (KSG) K-
         nearest neighbors mutual information from the paper: 
             Estimating mutual information"""
@@ -743,6 +754,45 @@ class NetworkInference:
         Term2 = np.mean(Digamma(Inner2X)+Digamma(Inner2Y))
         
         return Term1-Term2
+    
+    def MutualInfo_KNN_cdtree(self, X, Y, center = True, borders = True):
+        """Implementation Dr. Ozge Canli Usta for the method (2) of the algorithm
+        Kraskov, Stogbauer, Grassberger (KSG) K-nearest neighbors 
+        mutual information from the paper: 
+            Estimating mutual information"""
+        if self.KNN_K is None:
+            print("Warning KNN_K was set to None, for KNN the default is k=10")
+            print()
+            print("If you wish to change this behavior please manually set using set_KNN_K")
+            self.KNN_K=10 
+        
+        neig = self.KNN_K
+        data = np.hstack((X, Y))
+        tree = ss.cKDTree(data)  # 2dim-tree
+        tree_x = ss.cKDTree(X)  # 1dim-tree
+        tree_y = ss.cKDTree(Y)  # 1dim-tree
+        n, p = data.shape  # number of points, p is the dim of point
+        dist_2d, ind_2d = tree.query(data, neig + 1, p=float('inf'))
+        Neigh_sum = 0.
+        for i in range(n):
+            print(np.max(np.fabs(np.tile(data[i, :], (neig + 1, 1)) - data[ind_2d[i, :]]), 0).shape)
+            e_x, e_y = np.max(np.fabs(np.tile(data[i, :], (neig + 1, 1)) - data[ind_2d[i, :]]), 0)
+
+            if borders:
+
+                nx = tree_x.query_ball_point([data[i, 0]], e_x, p=float('inf'))
+                ny = tree_y.query_ball_point([data[i, 1]], e_y, p=float('inf'))
+            else:
+                nx = tree_x.query_ball_point([data[i, 0]], e_x - 1e-15, p=float('inf'))
+                ny = tree_y.query_ball_point([data[i, 1]], e_y - 1e-15, p=float('inf'))
+
+            if center:
+                Neigh_sum += (Digamma(len(nx)) + Digamma(len(ny))) / n  # including center point
+            else:
+                Neigh_sum += Digamma(len(nx) - 1) + Digamma(len(ny) - 1) / n  # not including center point
+
+        return Digamma(neig) - (1 / neig) - Neigh_sum + Digamma(n)    
+        
         
     def Compute_CMI_KNN(self,X):
         """KNN version of Conditional mutual information for Causation
@@ -756,7 +806,18 @@ class NetworkInference:
            
             return np.max([MIXYZ-MIXZ, 0])        
  
-
+    def Compute_CMI_KNN_(self,X):
+        """KNN version of Conditional mutual information for Causation
+        entropy..."""
+        if self.Z is None:
+            return self.MutualInfo_KNN(X, self.Y)
+        else:
+            XcatY = np.concatenate((X,self.Y),axis=1)
+            MIXYZ = self.MutualInfo_KNN(XcatY,self.Z)
+            MIXZ = self.MutualInfo_KNN(X,self.Z)
+           
+            return MIXYZ-MIXZ
+ 
     def Entropy_GKNN(self,X):
         """An implementation of Geometric KNN from Lord, Sun and Bollt's paper:
             Geometric k-nearest neighbor estimation of entropy and mutual information """
@@ -936,6 +997,7 @@ class NetworkInference:
             return self.Compute_CMI_KernelDensity(X)
         
         elif self.InferenceMethod_oCSE == 'KNN':
+            self.MutualInfo_KNN = self.MutualInfo_KNN_method1
             return self.Compute_CMI_KNN(X)
         
         elif self.InferenceMethod_oCSE == 'Poisson':
@@ -983,6 +1045,7 @@ class NetworkInference:
                 
                 Ents[i] = self.Compute_CMI(X)
             #print(self.Z,SetCheck[i])
+            self.Ents_forward = Ents
             Argmax = Ents.argmax()
             X = self.X[:,[SetCheck[Argmax]]]
             Dict = self.Standard_Shuffle_Test_oCSE(X,Ents[Argmax],self.Forward_oCSE_alpha)
@@ -1042,6 +1105,7 @@ class NetworkInference:
         self.Z = None
         RP = np.random.permutation(len(S))
         Sn = copy.deepcopy(S)
+        self.Ents_backward = []
         for i in range(len(S)):
             X = self.X[:,[S[RP[i]]]]
             
@@ -1056,10 +1120,12 @@ class NetworkInference:
             if Z.shape[1]==0:
                 self.Z = None
             Ent = self.Compute_CMI(X)
+            self.Ents_backward.append(Ent)
             Dict = self.Standard_Shuffle_Test_oCSE(X,Ent,self.Backward_oCSE_alpha)
             if not Dict['Pass']:
                 Sn = np.setdiff1d(Sn,S[RP[i]])
             
+        self.Ents_backward = np.array(self.Ents_backward)
         return Sn
             
         
@@ -1149,6 +1215,11 @@ class NetworkInference:
         
         return S
     
+    def sampling_ts(self, X, tau):
+        
+        return X[self.sampling_vector + tau, :]
+        
+    
     def Estimate_Network(self):
         #Initialize...
         self.Y = None
@@ -1161,20 +1232,32 @@ class NetworkInference:
         
         if Method == 'Standard_oCSE':
             XY = self.XY
-            XY_1 = XY[0:self.T-self.Tau,:]
-            XY_2 = XY[self.Tau:,:]
+            
+            #XY_1 = XY[0:self.T-self.Tau,:]
+            #Y_2 = XY[self.Tau:,:]
+            XY_1 = self.sampling_ts(XY, 0)
+            XY_2 = self.sampling_ts(XY, self.Tau)
+            
             B = np.zeros((self.n,self.n))
+            self.Ents_dict = dict()
             for i in range(self.n):
                 print("Estimating edges for node number: ", i)
+                
+                self.Ents_dict[i] = dict()
+                
                 self.Y = XY_2[:,[i]]
                 self.X = XY_1
                 S = self.Standard_oCSE()
                 B[i,S] = 1
+                self.Ents_dict[i]['forward'] = self.Ents_forward
+                self.Ents_dict[i]['backward'] = self.Ents_backward
                 
         elif Method=='Alternative_oCSE':
             XY = self.XY
-            XY_1 = XY[0:self.T-self.Tau,:]
-            XY_2 = XY[self.Tau:,:]
+            #XY_1 = XY[0:self.T-self.Tau,:]
+            #XY_2 = XY[self.Tau:,:]
+            XY_1 = self.sampling_ts(XY, 0)
+            XY_2 = self.sampling_ts(XY, self.Tau)
             B = np.zeros((self.n,self.n))
             for i in range(self.n):
                 print("Estimating edges for node number: ", i)
