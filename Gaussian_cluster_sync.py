@@ -9,6 +9,7 @@ Created on Tue Sep  3 16:32:28 2024
 import itertools
 import networkx as nx
 import numpy as np
+from numpy.random import default_rng
 from numpy import linalg as LA
 from matplotlib import pyplot as plt
 import scipy.special
@@ -46,9 +47,9 @@ def stochastic_Gaussian_cluster(seed,
                                 A,
                                 Rho,
                                 T):
-    np.random.seed(seed)
-    #R = 2*(np.random.rand(n, n)-0.5)
-    A = np.array(A)# * R
+    rng = default_rng(seed)
+    
+    A = np.array(A)
     
     spec_radius = np.max(np.abs(np.linalg.eigvals(A)))
     
@@ -60,14 +61,14 @@ def stochastic_Gaussian_cluster(seed,
     XY = np.zeros((T, n))
     
     for id_cluster, cluster in enumerate(cluster_list):
-        XY[0, cluster] = Epsilon*np.random.randn(1)
+        XY[0, cluster] = Epsilon*rng.standard_normal(1)
     
     for i in range(1, T):
         
         Xi = A @ XY[i - 1, :]
 
         for cluster in cluster_list:
-            Xi[cluster] = Xi[cluster] + Epsilon*np.random.randn(1)
+            Xi[cluster] = Xi[cluster] + Epsilon*rng.standard_normal(1)
             
         XY[i, :] = Xi
         
@@ -92,6 +93,8 @@ def cluster_state_GN(cluster_list, T = 250, Rho = 0.95):
     #SET SYNTHETIC DATA GENERATION PARAMETERS AND GENERATE DATA
     #This sets the number of time steps to simulate. Current default is 100. 
     NI.set_T(T)
+    NI.set_sampling_rate(1)
+
     #This is 0< rho < 1, which is closely related to the signal to noise ratio. The close rho is to 1 the higher the signal to noise...
     #for the actual details on the parameter rho please visit the paper: "Causal Network Inference by Optimal Causation Entropy"
     NI.set_Rho(Rho)
@@ -99,7 +102,7 @@ def cluster_state_GN(cluster_list, T = 250, Rho = 0.95):
     #This will generate synthetic data which is stored inside
     #NI.Gen_Stochastic_Gaussian(Epsilon=1)
     
-    Data = stochastic_Gaussian_cluster(seed, Epsilon, n, cluster_list, A, Rho, T)
+    Data = NI.stochastic_Gaussian_cluster(seed, Epsilon, n, cluster_list, A, Rho, T)
     #Now that the data has been generated, it is stored internally and if we want we can immediately estimate the network structure,
     #or we can retrieve the data if we wish.
     
@@ -170,6 +173,7 @@ def quotient_GN(T = 250, Rho = 0.95):
     #SET SYNTHETIC DATA GENERATION PARAMETERS AND GENERATE DATA
     #This sets the number of time steps to simulate. Current default is 100. 
     NI.set_T(T)
+    NI.set_sampling_rate(1)
     #This is 0< rho < 1, which is closely related to the signal to noise ratio. The close rho is to 1 the higher the signal to noise...
     #for the actual details on the parameter rho please visit the paper: "Causal Network Inference by Optimal Causation Entropy"
     NI.set_Rho(Rho)

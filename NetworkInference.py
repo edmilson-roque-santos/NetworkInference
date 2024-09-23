@@ -5,13 +5,14 @@ Created on Thu Mar 31 08:39:51 2022
 @author: fishja
 """
 
+import numpy as np
+from numpy.random import default_rng
 from sklearn.neighbors import KernelDensity
 from scipy.spatial import distance
 from scipy.special import gamma as Gamma
 from scipy.special import digamma as Digamma
 from scipy import spatial as ss
 import scipy.stats as SStats
-import numpy as np
 import itertools
 import copy
 import datetime 
@@ -529,7 +530,10 @@ class NetworkInference:
         self.XY = XY
          
         
-    def Gen_Stochastic_Gaussian(self,Epsilon=1e-1, seed = 1):
+    def Gen_Stochastic_Gaussian(self, Epsilon=1e-1, 
+                                seed = 1, 
+                                spec_rad = True,
+                                transient_time = 1000):
         """Linear stochastic Gaussian process"""
         
         if self.NetworkAdjacency is None:
@@ -538,24 +542,76 @@ class NetworkInference:
         if self.Rho is None:
             raise ValueError("Missing Rho, please set it using set_Rho")
         
-        np.random.seed(seed)
+        rng = default_rng(seed)
         self.Gaussian_Epsilon = Epsilon
-        #R = 2*(np.random.rand(self.n,self.n)-0.5)
-        A = np.array(self.NetworkAdjacency) #* R
+        mean = np.zeros(self.n)
+        cov = np.eye(self.n)*Epsilon
+        noise_transient = rng.multivariate_normal(mean, cov, transient_time)
+        noise = rng.multivariate_normal(mean, cov, self.Ttotal)
+        
+        A = np.array(self.NetworkAdjacency)
+        
+        if spec_rad:
+            spec_radius = np.max(np.abs(np.linalg.eigvals(A)))
+            
+            if spec_radius > 0:
+                A = A/np.max(np.abs(np.linalg.eigvals(A)))
+                
+            A = A*self.Rho
+            
+        self.Lin_Stoch_Gaussian_Adjacency = A
+        
+        Xi = Epsilon*rng.standard_normal(self.n)
+        
+        #Evolve the dynamics during transient time to discard it.
+        for i in range(1, transient_time):
+            Xi_t = np.dot(A, Xi) + noise_transient[i, :]
+            Xi = Xi_t.copy()
+        
+        #After transient time the dynamics is recorded.
+        XY = np.zeros((self.Ttotal,self.n))    
+        XY[0,:] = Xi_t.copy()
+        
+        for i in range(1,self.Ttotal):
+            Xi = np.dot(A, XY[i-1,:]) + noise[i, :]
+            XY[i,:] = Xi.copy()
+        self.XY = XY
+    
+    def stochastic_Gaussian_cluster(self,
+                                    seed, 
+                                    Epsilon, 
+                                    n, 
+                                    cluster_list, 
+                                    A,
+                                    Rho,
+                                    T):
+        rng = default_rng(seed)
+        self.Gaussian_Epsilon = Epsilon
+        A = np.array(A)
         
         spec_radius = np.max(np.abs(np.linalg.eigvals(A)))
         
         if spec_radius > 0:
             A = A/np.max(np.abs(np.linalg.eigvals(A)))
             
-        A = A*self.Rho
+        A = A*Rho
         self.Lin_Stoch_Gaussian_Adjacency = A
-        XY = np.zeros((self.Ttotal,self.n))
-        XY[0,:] = Epsilon*np.random.randn(1,self.n)
-        for i in range(1,self.Ttotal):
-            Xi = np.dot(A,np.matrix(XY[i-1,:]).T) + Epsilon*np.random.randn(self.n,1)
-            XY[i,:] = Xi.T
-        self.XY = XY
+        XY = np.zeros((self.Ttotal, n))
+        
+        for id_cluster, cluster in enumerate(cluster_list):
+            XY[0, cluster] = Epsilon*rng.standard_normal(1)
+        
+        for i in range(1, self.Ttotal):
+            
+            Xi = A @ XY[i - 1, :]
+
+            for cluster in cluster_list:
+                Xi[cluster] = Xi[cluster] + Epsilon*rng.standard_normal(1)
+                
+            XY[i, :] = Xi
+            
+        return XY 
+    
     
     def Gen_Poisson_Data(self,Epsilon=1,noiseLevel=1):
         if self.NetworkAdjacency is None:
@@ -645,7 +701,7 @@ class NetworkInference:
        
        
     
-    def Compute_CMI_Gaussian(self,X):
+    def Compute_CMI_Gaussian(self, X):
         """An implementation of the Gaussian conditional mutual information from
         the paper by Sun, Taylor and Bollt entitled: 
             Causal network inference by optimal causation entropy"""
@@ -653,25 +709,24 @@ class NetworkInference:
         TupleY = self.Y.shape
         if len(TupleX)==1:
             SX = [[1]]
-        
+            
         else:
             if TupleX[1] == 1:
                 SX = [[1]]
             else:
                 SX = np.corrcoef(X.T)
-        
-        if len(TupleY) ==1:
+            
+        if len(TupleY) == 1:
             SY = [[1]]
         else:
             if TupleY[1] == 1:
                 SY = [[1]]
             else:
                 SY = np.corrcoef(self.Y.T)
-        
+            
         SX = np.linalg.det(SX)
         SY = np.linalg.det(SY)        
         if self.Z is None:
-
             SXY = np.linalg.det(np.corrcoef(X.T,self.Y.T))
             
             return 0.5*np.log((SX*SY)/SXY)
@@ -775,7 +830,7 @@ class NetworkInference:
         dist_2d, ind_2d = tree.query(data, neig + 1, p=float('inf'))
         Neigh_sum = 0.
         for i in range(n):
-            print(np.max(np.fabs(np.tile(data[i, :], (neig + 1, 1)) - data[ind_2d[i, :]]), 0).shape)
+            
             e_x, e_y = np.max(np.fabs(np.tile(data[i, :], (neig + 1, 1)) - data[ind_2d[i, :]]), 0)
 
             if borders:
@@ -810,9 +865,9 @@ class NetworkInference:
         """KNN version of Conditional mutual information for Causation
         entropy..."""
         if self.Z is None:
-            return self.MutualInfo_KNN(X, self.Y)
+            return self.MutualInfo_KNN(self.Y, X)
         else:
-            XcatY = np.concatenate((X,self.Y),axis=1)
+            XcatY = np.concatenate((self.Y, X),axis=1)
             MIXYZ = self.MutualInfo_KNN(XcatY,self.Z)
             MIXZ = self.MutualInfo_KNN(X,self.Z)
            
@@ -998,7 +1053,11 @@ class NetworkInference:
         
         elif self.InferenceMethod_oCSE == 'KNN':
             self.MutualInfo_KNN = self.MutualInfo_KNN_method1
-            return self.Compute_CMI_KNN(X)
+            return self.Compute_CMI_KNN_(X)
+        
+        elif self.InferenceMethod_oCSE == 'KNN cdtree':
+            self.MutualInfo_KNN = self.MutualInfo_KNN_cdtree
+            return self.Compute_CMI_KNN_(X)
         
         elif self.InferenceMethod_oCSE == 'Poisson':
             return self.Compute_CMI_Poisson(X)
