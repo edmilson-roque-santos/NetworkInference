@@ -67,12 +67,12 @@ def mutual_info_node(A, T, Rho, Tau, SR, K, seed, id_node = 0, method = 'Gaussia
 
 Rho = 0.99
 Tau = 1
-sampling_rate = 10
+sampling_rate = 1
 K = 10
 number_seeds = 10
 id_node = 1
 
-Ts = [50, 600, 15]
+Ts = [20, 1000, 25]
 T_vector = np.linspace(Ts[0], Ts[1], Ts[2], dtype = int)
 
 
@@ -85,6 +85,11 @@ G = nx.read_edgelist("network_structure/{}.txt".format(network_name),
                     nodetype = int, create_using = nx.DiGraph())
 A = nx.adjacency_matrix(G)
 A = A.todense().T
+
+
+#Theoretical expression to compute the mutual information 
+CE_vector = uts.true_CE_cycle(id_node, A, epsilon = Rho)
+#uts.true_CE_path(id_node, A, epsilon = Rho)
 
 filename = "minfo_exp_{}_rho_{}_tau_{}_sr_{}_K_{}, ns_{}_node_{}_Ts_{}_{}_{}".format(exp_name,
                                                                                      Rho, Tau,
@@ -113,16 +118,20 @@ else:
             out_results_hdf5[method][T] = dict()
             
             for seed in range(1, number_seeds + 1):
-                mis = mutual_info_node(A, T, Rho, Tau, sampling_rate, K, seed, id_node, method)
+                mis = mutual_info_node(A, T, Rho, Tau, sampling_rate, 
+                                       K, seed, id_node, method)
+                
                 out_results_hdf5[method][T][seed] = mis
 
     mutual_infos = out_results_hdf5.to_dict()        
     out_results_hdf5.close()
 
-CE_vector = uts.true_CE_cycle(id_node, A, epsilon = Rho)
-
 uts.plot_error_bar(mutual_infos, CE_vector)
 uts.plot_shaded_area(mutual_infos, CE_vector)
+
+
+
+
 
 
 

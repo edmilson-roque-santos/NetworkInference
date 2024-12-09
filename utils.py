@@ -66,7 +66,6 @@ def true_CE_cycle(id_node, A, epsilon):
     id_vec = np.array([0])
     for i in range(N):
         CE_vector[i] = 0.5*A[id_node, i]*np.log(1/(1 - epsilon**2))
-        id_vec = np.append(id_vec, [i + 1])
     return CE_vector
 
 #=============================================================================#
@@ -80,7 +79,7 @@ def comparison(mutual_infos, CE_vector):
     std_comp_vec = np.zeros((len(methods), T_vector.shape[0], CE_vector.shape[0]))
 
     for id_method, method in enumerate(methods):        
-        for id_T, T in enumerate(mutual_infos[method].keys()):
+        for id_T, T in enumerate(T_vector):
             seeds = mutual_infos[method][T].keys()
             mi_seed = np.zeros((len(seeds), CE_vector.shape[0]))
             for id_seed, seed in enumerate(seeds):
@@ -118,7 +117,7 @@ def plot_shaded_area(mutual_infos, CE_vector):
                             alpha=0.2)
     
         
-        ax[id_row].set_ylabel(r'$\hat{I} - I$')
+        ax[id_row].set_ylabel(r'$|\hat{I} - I|$')
         title = methods[id_row].replace("_", " ")
         
         ax[id_row].set_title(r'{}'.format(title))
@@ -155,6 +154,8 @@ def plot_error_bar(mutual_infos, CE_vector):
         title = methods[id_row].replace("_", " ")
         
         ax[id_row].set_title(r'{}'.format(title))
+    
+    ax[id_row].set_xscale('log')
     
     ax[0].legend(loc='upper center', bbox_to_anchor=(0.5, 1.1),
           ncol=3)

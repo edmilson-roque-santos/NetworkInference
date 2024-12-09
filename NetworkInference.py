@@ -530,7 +530,7 @@ class NetworkInference:
         self.XY = XY
          
         
-    def Gen_Stochastic_Gaussian(self, Epsilon=1e-1, 
+    def multivariate_Gen_Stochastic_Gaussian(self, Epsilon=1e-1, 
                                 seed = 1, 
                                 spec_rad = True,
                                 transient_time = 1000):
@@ -561,7 +561,7 @@ class NetworkInference:
             
         self.Lin_Stoch_Gaussian_Adjacency = A
         
-        Xi = Epsilon*rng.standard_normal(self.n)
+        Xi = mean.copy()#Epsilon*rng.standard_normal(self.n)
         
         #Evolve the dynamics during transient time to discard it.
         for i in range(1, transient_time):
@@ -569,13 +569,55 @@ class NetworkInference:
             Xi = Xi_t.copy()
         
         #After transient time the dynamics is recorded.
-        XY = np.zeros((self.Ttotal,self.n))    
+        XY = np.zeros((self.Ttotal, self.n))    
         XY[0,:] = Xi_t.copy()
         
         for i in range(1,self.Ttotal):
-            Xi = np.dot(A, XY[i-1,:]) + noise[i, :]
+            Xi = np.dot(A, XY[i-1,:]) + noise[i - 1, :]
             XY[i,:] = Xi.copy()
         self.XY = XY
+        
+    def Gen_Stochastic_Gaussian(self, Epsilon=1e-1, 
+                                seed = 1, 
+                                spec_rad = True,
+                                transient_time = 1000):
+        """Linear stochastic Gaussian process"""
+        
+        if self.NetworkAdjacency is None:
+            raise ValueError("Missing adjacency matrix, please add this using set_NetworkAdjacency")
+        
+        if self.Rho is None:
+            raise ValueError("Missing Rho, please set it using set_Rho")
+        
+        rng = default_rng(seed)
+        self.Gaussian_Epsilon = Epsilon
+        A = np.array(self.NetworkAdjacency)
+        
+        if spec_rad:
+            spec_radius = np.max(np.abs(np.linalg.eigvals(A)))
+            
+            if spec_radius > 0:
+                A = A/np.max(np.abs(np.linalg.eigvals(A)))
+                
+            A = A*self.Rho
+            
+        self.Lin_Stoch_Gaussian_Adjacency = A
+        
+        #Xi = np.zeros(self.n)
+        
+        #Evolve the dynamics during transient time to discard it.
+        #for i in range(1, transient_time):
+        #    Xi_t = np.dot(A, Xi) + Epsilon*rng.standard_normal(self.n)
+        #    Xi = Xi_t.copy()
+        
+        #After transient time the dynamics is recorded.
+        XY = np.zeros((self.Ttotal, self.n))    
+        XY[0,:] = np.zeros(self.n)#Xi_t.copy()
+        
+        for i in range(1,self.Ttotal):
+            Xi = np.dot(A, XY[i-1,:]) + Epsilon*rng.standard_normal(self.n)
+            XY[i,:] = Xi.copy()
+        self.XY = XY    
     
     def stochastic_Gaussian_cluster(self,
                                     seed, 
