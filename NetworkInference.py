@@ -853,7 +853,7 @@ class NetworkInference:
         return Term1-Term2
     
     def MutualInfo_KNN_cdtree(self, X, Y, center = True, borders = True):
-        """Implementation Dr. Ozge Canli Usta for the method (2) of the algorithm
+        """Implementation Dr. Ozge Canli Usta for the method (2) of the estimator
         Kraskov, Stogbauer, Grassberger (KSG) K-nearest neighbors 
         mutual information from the paper: 
             Estimating mutual information"""
@@ -890,6 +890,53 @@ class NetworkInference:
 
         return Digamma(neig) - (1 / neig) - Neigh_sum + Digamma(n)    
         
+    def CondMutualInfo_KNN_cdtree(self, X, Y, Z):
+        """Implementation Dr. Ozge Canli Usta for the Causation Entropy
+        based on method (2) of the estimator
+        Kraskov, Stogbauer, Grassberger (KSG) K-nearest neighbors 
+        mutual information from the paper: 
+            Estimating mutual information"""
+            
+        if self.KNN_K is None:
+            print("Warning KNN_K was set to None, for KNN the default is k=10")
+            print()
+            print("If you wish to change this behavior please manually set using set_KNN_K")
+            self.KNN_K=10
+
+        n, p = X.shape
+
+        neigh = self.KNN_K
+        data_all = np.hstack((X, Y, Z))
+
+        tree = ss.cKDTree(data_all)
+        dist, ind = tree.query(data_all, neigh + 1, p=float('inf'))
+
+        tree_xy = ss.cKDTree(Z)
+
+        data_xpx = np.hstack((Y, Z))
+        tree_xpx = ss.cKDTree(data_xpx)
+
+        data_yx = np.hstack((Z, X))
+        tree_yx = ss.cKDTree(data_yx)
+
+        Neigh_sum = 0
+
+        for i in range(n):
+
+            ee = dist[i, neigh]
+
+            nx = tree_xy.query_ball_point(Z[i, :], ee - 1e-15, p=float('inf'))
+            nxpx = tree_xpx.query_ball_point(data_xpx[i, :], ee - 1e-15, p=float('inf'))
+            nyx = tree_yx.query_ball_point(data_yx[i, :], ee - 1e-15, p=float('inf'))
+
+            if (len(nx) == 0):
+                print('xx')
+
+            else:
+
+                Neigh_sum += (Digamma(len(nx)) - Digamma(len(nxpx)) - Digamma(len((nyx)))) / n
+
+        return Digamma(neigh) + Neigh_sum    
         
     def Compute_CMI_KNN(self,X):
         """KNN version of Conditional mutual information for Causation
@@ -909,12 +956,18 @@ class NetworkInference:
         if self.Z is None:
             return self.MutualInfo_KNN(self.Y, X)
         else:
-            XcatY = np.concatenate((self.Y, X),axis=1)
-            MIXYZ = self.MutualInfo_KNN(XcatY,self.Z)
-            MIXZ = self.MutualInfo_KNN(X,self.Z)
-           
-            return MIXYZ-MIXZ
+    
+            if self.InferenceMethod_oCSE == 'KNN':
+                XcatY = np.concatenate((self.Y, X),axis=1)
+                MIXYZ = self.MutualInfo_KNN(XcatY,self.Z)
+                MIXZ = self.MutualInfo_KNN(X,self.Z)
+               
+                return MIXYZ-MIXZ
  
+            if self.InferenceMethod_oCSE == 'KNN cdtree':
+                 return self.CondMutualInfo_KNN_cdtree(X, self.Y, self.Z)              
+ 
+    
     def Entropy_GKNN(self,X):
         """An implementation of Geometric KNN from Lord, Sun and Bollt's paper:
             Geometric k-nearest neighbor estimation of entropy and mutual information """
@@ -1334,10 +1387,10 @@ class NetworkInference:
         if Method == 'Standard_oCSE':
             XY = self.XY
             
-            #XY_1 = XY[0:self.T-self.Tau,:]
-            #Y_2 = XY[self.Tau:,:]
-            XY_1 = self.sampling_ts(XY, 0)
-            XY_2 = self.sampling_ts(XY, self.Tau)
+            XY_1 = XY[0:self.T-self.Tau,:]
+            XY_2 = XY[self.Tau:,:]
+            #XY_1 = self.sampling_ts(XY, 0)
+            #XY_2 = self.sampling_ts(XY, self.Tau)
             
             B = np.zeros((self.n,self.n))
             self.Ents_dict = dict()
@@ -1355,10 +1408,10 @@ class NetworkInference:
                 
         elif Method=='Alternative_oCSE':
             XY = self.XY
-            #XY_1 = XY[0:self.T-self.Tau,:]
-            #XY_2 = XY[self.Tau:,:]
-            XY_1 = self.sampling_ts(XY, 0)
-            XY_2 = self.sampling_ts(XY, self.Tau)
+            XY_1 = XY[0:self.T-self.Tau,:]
+            XY_2 = XY[self.Tau:,:]
+            #XY_1 = self.sampling_ts(XY, 0)
+            #XY_2 = self.sampling_ts(XY, self.Tau)
             B = np.zeros((self.n,self.n))
             for i in range(self.n):
                 print("Estimating edges for node number: ", i)

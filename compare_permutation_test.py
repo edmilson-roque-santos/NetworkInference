@@ -1,8 +1,7 @@
 """
-Comparison between Gaussian formula and KNN method for estimating 
-the mutual information.
+Compute the permutation test for the mutual information estimation
 
-Created on Mon Sep 16 13:47:11 2024
+Created on Mon Dec  9 15:16:39 2024
 
 @author: Edmilson Roque dos Santos
 """
@@ -10,6 +9,7 @@ Created on Mon Sep 16 13:47:11 2024
 import os
 import networkx as nx
 import numpy as np
+from numpy.random import default_rng
 from matplotlib import pyplot as plt
 import scipy.special
 
@@ -19,8 +19,15 @@ import utils as uts
 from NetworkInference import NetworkInference
 
 
-def mutual_info_node(A, T, Rho, Tau, SR, K, seed, id_node = 0, method = 'Gaussian',
-                     plot_data = False):
+def mutual_info_node(A, T, Rho, Tau, SR, K, seed, id_node = 0, 
+                     method = 'Gaussian',
+                     number_permutations = 100):
+    
+    #Initiate the permutation test. 
+    #Number of permutations and pseudo-random generator
+    rng = default_rng(seed)
+    ns = number_permutations
+    
     #GENERATE NETWORK FOR SYNTHETIC DATA
     #SET NETWORK STRUCTURE FOR DATA GENERATION
     NI = NetworkInference()
@@ -36,10 +43,7 @@ def mutual_info_node(A, T, Rho, Tau, SR, K, seed, id_node = 0, method = 'Gaussia
     #Epsilon in the below expression is the variance of the variables in the stochastic process
     #This will generate synthetic data which is stored inside
     espilon = 1
-    NI.Gen_Stochastic_Gaussian(Epsilon=espilon, seed=seed, spec_rad = True)
-    
-    if plot_data:
-        uts.plot_GP(NI.XY.T)    
+    NI.Gen_Stochastic_Gaussian(Epsilon=espilon, seed=seed, spec_rad = False)
     
     #Now that the data has been generated, it is stored internally and if we want we can immediately estimate the network structure,
     #or we can retrieve the data if we wish.
@@ -56,16 +60,24 @@ def mutual_info_node(A, T, Rho, Tau, SR, K, seed, id_node = 0, method = 'Gaussia
     XY_1 = NI.sampling_ts(XY, 0)
     XY_2 = NI.sampling_ts(XY, NI.Tau)
    
-    mutual_infos = np.zeros(NI.n)
+    mutual_infos = np.zeros((NI.n, ns))
     
     NI.Y = XY_2[:, [id_node]].copy()
     NI.X = XY_1.copy() 
            
     for i in range(NI.n):
         X = NI.X[:, [i]].copy()
-        
-        mutual_infos[i] = NI.Compute_CMI(X)
+        for per in range(ns):
             
+            TupleX = X.shape    
+            RP = rng.permutation(T)
+            if len(TupleX)>1:
+                Xshuff = X[RP,:]
+            else:
+                Xshuff = X[RP]
+                
+            mutual_infos[i, per] = NI.Compute_CMI(Xshuff)
+        
     return mutual_infos
 
 
@@ -76,14 +88,14 @@ K = 10
 number_seeds = 10
 id_node = 1
 
-Ts = [20, 1000, 25]
+Ts = [20, 1000, 5]
 T_vector = np.linspace(Ts[0], Ts[1], Ts[2], dtype = int)
 
 
 #Number of nodes
 N = 3
 #Experiment name for saving the results in appropriate filename
-exp_name = 'cg'
+exp_name = 'cg_PT'
 network_name = 'cycle_graph'
 G = nx.read_edgelist("network_structure/{}.txt".format(network_name),
                     nodetype = int, create_using = nx.DiGraph())
@@ -130,8 +142,9 @@ else:
     mutual_infos = out_results_hdf5.to_dict()        
     out_results_hdf5.close()
 
-uts.plot_error_bar(mutual_infos, CE_vector)
-uts.plot_shaded_area(mutual_infos, CE_vector)
+uts.plot_ridgeline_method(mutual_infos, nodelist = [0, 1], method = 'Gaussian', 
+                          overlap = 0.01, limits = [-0.02, 0.02])
+uts.plot_ridgeline_method(mutual_infos, nodelist = [0, 1], method = 'KNN')
+uts.plot_ridgeline_method(mutual_infos, nodelist = [0, 1], method = 'KNN cdtree')
 
-
-
+uts.plot_fig_rls(mutual_infos, nodelist = [0, 1], filename = 'PT_cycle_sr_1')

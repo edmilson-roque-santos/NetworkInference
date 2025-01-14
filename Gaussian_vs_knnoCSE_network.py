@@ -169,7 +169,7 @@ def lgth_data():
                 entropies[method][T][seed] = NI.Ents_dict        
         
     return entropies
-
+'''
 Rho = 0.3
 Tau = 1
 sampling_rate = 100
@@ -191,3 +191,5 @@ for method in ['Gaussian', 'KNN']:
             B, NI = net_inference(T, Rho, Tau, sampling_rate, K, seed, method)
             entropies[method][T][seed] = NI.Ents_dict
             graphs[method][T][seed] = B
+
+'''
