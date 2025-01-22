@@ -171,7 +171,6 @@ def E(f, rho):
     numpy array
         
     '''    
-    
     return 1.0 - np.power(1.0 - rho, 1.0/f)
 
 def hemodyn_model(t, state, z, kappa, gamma, tau, alpha, rho):
@@ -319,11 +318,11 @@ k3 = 2*rho_vec - 0.2
 V0 = 0.02
 BOLD_t_ = MR_signal(q, v, V0, k1, k2, k3)
 
-thermal_white_noise = rng.normal(0, scale = 0.01*BOLD_t_.mean(axis=0), 
+thermal_white_noise = rng.normal(0, scale = 0.05*BOLD_t_.mean(axis=0), 
                                  size = BOLD_t_.shape)
 BOLD_t_ =  BOLD_t_ + thermal_white_noise
 
-sampling_BOLD_dt = 3
+sampling_BOLD_dt = 1
 t_BOLD_eval = np.arange(0.0, blood_time, sampling_BOLD_dt)
 BOLD_t = BOLD_t_[np.array(t_BOLD_eval/sampling_blood_dt, dtype = int), :]
 
@@ -335,3 +334,20 @@ if plot_BOLD_timeseries:
     plt.xlabel(r"Time (s)")
     plt.ylabel(r"$BOLD(t)$")
     plt.show()        
+        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
