@@ -13,6 +13,7 @@ from numpy.random import default_rng
 import matplotlib.pyplot as plt
 import scipy.io
 from scipy.integrate import solve_ivp
+from scipy.signal import welch, periodogram
 
 #=============================================================================#
 #=============================================================================#
@@ -35,21 +36,23 @@ params_plot = {'axes.labelsize': 16,
 plt.rcParams.update(params_plot)
 plt.rc('text', usetex=True)
 #=============================================================================#
+# Overall method to integrate the ODEs 
+method_ODE = 'RK45'
 
 # Parameters of the input Poisson process driving dynamics
     
 N = 2   #Number of nodes in the network
 up_duration = 2.5  # mean duration for "up" state (seconds)
 down_duration = 10  # mean duration for "down" state (seconds)
-state_heights = {'up': 10, 'down': 0}  # Heights for each state
+state_heights = {'up': 10.0, 'down': 0}  # Heights for each state
 noise_std = state_heights['up']*(1/20.0)  # standard deviation for noise
 
-random_seed = 2   # seed identifier
+random_seed = 1   # seed identifier
 rng = default_rng(random_seed) # pseudo random generator
 
 # Time array
 dt = 0.005  # time step for simulation
-total_time = 250  # simulation time in seconds
+total_time = 600  # simulation time in seconds
 time_points = np.arange(0, total_time + dt, dt)
 external_input = np.zeros((time_points.shape[0], N))
 
@@ -126,23 +129,23 @@ def u_ext(t, dt = dt):
     return external_input[int(t/dt), :]
 
 #The scaling time lag
-sigma = 20
+sigma = 25
 #Total amount of time to simulate the neural dynamics
 neural_time = total_time
 #Step size of the neural dynamics
-sampling_dt = dt #0.05
+sampling_dt = dt
 t_eval = np.arange(0.0, neural_time, sampling_dt)
 
 sol = solve_ivp(linear_DMC, [0, neural_time], initial_condition,
-                method='RK45',
+                method=method_ODE,
                 args=(A, sigma, C, u_ext), t_eval = t_eval, 
                 first_step = dt, 
                 max_step = dt,
-                rtol = 1e-4,
-                atol = 1e-5)
+                rtol = 1e-3,
+                atol = 1e-6)
 
 X_t = sol.y.T
-    
+   
 #Plotting the neural time series
 plot_neural_timeseries = True
 if plot_neural_timeseries:
@@ -152,6 +155,36 @@ if plot_neural_timeseries:
     plt.xlabel(r"Time (s)")
     plt.ylabel(r"$z(t)$")
     plt.show()    
+    
+plot_psd_timeseries = True
+
+if plot_psd_timeseries:    
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=300)
+    
+    for id_node in range(X_t.shape[1]):
+        f_X_t, psd_X_t = welch(X_t[:, id_node], 
+                               fs = 1/dt, 
+                               nperseg=X_t.shape[0])
+        ax.plot(psd_X_t)
+      
+    ax.set_ylabel(r"$PSD$")
+    ax.set_xlabel(r'Frequency')
+    ax.set_yscale('log')
+    plt.show()
+    
+    
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=300)
+    
+    for id_node in range(X_t.shape[1]):
+        f_X_t, psd_X_t = periodogram(X_t[:, id_node], 
+                                     fs = 1/dt)
+        ax.plot(f_X_t, psd_X_t)
+      
+    ax.set_ylabel(r"$PSD$")
+    ax.set_xlabel(r'Frequency')
+    ax.set_yscale('log')
+    plt.show()
+    
 #=============================================================================#
 def E(f, rho):
     '''
@@ -174,7 +207,7 @@ def E(f, rho):
     
     return 1.0 - np.power(1.0 - rho, 1.0/f)
 
-def hemodyn_model(t, state, z, kappa, gamma, tau, alpha, rho):
+def hemodyn_model(t, state, z, eps, kappa, gamma, tau, alpha, rho):
     '''
     The hemodynamic state equations
 
@@ -219,7 +252,7 @@ def hemodyn_model(t, state, z, kappa, gamma, tau, alpha, rho):
     
     v_alpha = np.power(v, 1/alpha)
     
-    s_dot = z(t) - kappa*s - gamma*(f - 1)
+    s_dot = eps*z(t) - kappa*s - gamma*(f - 1)
     f_dot = s
     v_dot = (f - v_alpha)/tau
     q_dot = (f*E(f, rho)/rho - v_alpha*q/v)/tau
@@ -228,6 +261,11 @@ def hemodyn_model(t, state, z, kappa, gamma, tau, alpha, rho):
     
 # Set of parameters for the hemodynamic dynamics model. 
 # These parameters values are based on the DCM - Friston et al., 2003.
+
+# Neuronal Efficacy - Nonlinear Responses in fMRI: The Balloon Model, Volterra Kernels, and Other Hemodynamics by K. J. Friston, et al (2000)
+eps = 2 
+
+# The original paper add randomness to this parameters at each node.
 kappa = 0.65
 gamma = 0.41
 tau = 0.98
@@ -244,24 +282,22 @@ blood_time = neural_time - dt
 sampling_blood_dt = dt
 t_blood_eval = np.arange(0.0, blood_time, sampling_blood_dt)
 
-s0 = 0.0
-s0_vec = s0 + rng.normal(0, scale = 1e-1, size = N)
+# Choice of initial conditions for the Ballon model.
+s0_vec = np.zeros(N)
 ic_blood = np.concatenate((s0_vec, np.ones(N*3)))
 
 
 def z_input(t, dt = sampling_blood_dt):
     return X_t[int(t/sampling_blood_dt), :]
 
-#z = lambda t: X_t[int(t/BOLD_dt), :]
-
 sol = solve_ivp(hemodyn_model, [0, blood_time], ic_blood,
-                method='RK45',
-                args=(z_input, kappa_vec, gamma_vec, tau_vec, alpha_vec, rho_vec), 
+                method=method_ODE,
+                args=(z_input, eps, kappa_vec, gamma_vec, tau_vec, alpha_vec, rho_vec), 
                 t_eval = t_blood_eval, 
                 first_step = dt, 
                 max_step = dt,
-                rtol = 1e-4,
-                atol = 1e-5)
+                rtol = 1e-3,
+                atol = 1e-6)
 
 blood_flow_t = sol.y.T
     
@@ -317,21 +353,48 @@ k1 = 7*rho_vec
 k2 = 2
 k3 = 2*rho_vec - 0.2
 V0 = 0.02
-BOLD_t_ = MR_signal(q, v, V0, k1, k2, k3)
+BOLD_t_ = MR_signal(q, v, V0, k1, k2, k3)*100
 
-thermal_white_noise = rng.normal(0, scale = 0.01*BOLD_t_.mean(axis=0), 
+# The amount of noise is a free parameter in the current version of the model.
+thermal_white_noise = rng.normal(0, scale = 0.01*BOLD_t_.mean(axis = 0), 
                                  size = BOLD_t_.shape)
-BOLD_t_ =  BOLD_t_ + thermal_white_noise
+BOLD_t_noisy =  BOLD_t_ + thermal_white_noise
 
-sampling_BOLD_dt = 3
-t_BOLD_eval = np.arange(0.0, blood_time, sampling_BOLD_dt)
-BOLD_t = BOLD_t_[np.array(t_BOLD_eval/sampling_blood_dt, dtype = int), :]
-
-plot_BOLD_timeseries = True
-if plot_BOLD_timeseries:
+plot_BOLD_timeseries_noisy = True
+if plot_BOLD_timeseries_noisy:
     plt.figure(figsize=(6, 3), dpi = 300)
-    plt.plot(t_BOLD_eval, BOLD_t, label='BOLD Time series')
+    plt.plot(t_blood_eval, BOLD_t_, label='BOLD Time series')
     plt.title("BOLD Time series")
     plt.xlabel(r"Time (s)")
     plt.ylabel(r"$BOLD(t)$")
     plt.show()        
+
+sampling_BOLD_dt = 3
+t_BOLD_eval = np.arange(0.0, blood_time, sampling_BOLD_dt)
+BOLD_t_sampled = BOLD_t_noisy[np.array(t_BOLD_eval/sampling_blood_dt, dtype = int), :]
+
+plot_BOLD_timeseries = True
+if plot_BOLD_timeseries:
+    plt.figure(figsize=(6, 3), dpi = 300)
+    plt.plot(t_BOLD_eval, BOLD_t_sampled, label='BOLD Time series')
+    plt.title("BOLD Time series")
+    plt.xlabel(r"Time (s)")
+    plt.ylabel(r"$BOLD(t)$")
+    plt.show()     
+    
+plot_BOLD_psd_timeseries = True
+
+if plot_BOLD_psd_timeseries:    
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4), dpi=300)
+    
+    for id_node in range(BOLD_t_sampled.shape[1]):
+        f_X_t, psd_X_t = welch(BOLD_t_sampled[:, id_node], 
+                               fs = 1/sampling_BOLD_dt,
+                               nperseg=BOLD_t_sampled.shape[0])
+        ax.plot(psd_X_t)
+      
+    ax.set_ylabel(r"$PSD$")
+    ax.set_xlabel(r'Frequency')
+    plt.show()        
+    
+    
