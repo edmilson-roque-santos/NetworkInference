@@ -503,27 +503,30 @@ class NetworkInference:
         
         return r*X*(1-X)
         
-    def Gen_Logistic_Dynamics(self,r=3.99,sigma=0.1):
+    def Gen_Logistic_Dynamics(self,r=3.99,sigma=0.1,seed = 1):
         """Network coupled logistic map, r is the logistic map parameter
            and sigma is the coupling strength between oscillators"""
         
         if self.NetworkAdjacency is None:
             raise ValueError("Missing adjacency matrix, please add this using set_NetworkAdjacency")
+        rng = default_rng(seed)
         T = self.T
         self.Logistic_parameter_r = r
         self.Logistic_Coupling = sigma
         A = self.NetworkAdjacency
         #Must adjust the adjacency matrix so that dynamics stay in [0,1]
-        A = A/np.sum(A,axis=1)
-        A = A.T 
+        norm = np.sum(A,axis=1)
+        mask = norm > 0
+        A[mask] = A[mask]/norm[mask]
         A[np.isnan(A)] = 0
         A[np.isinf(A)] = 0
         #Since the row sums equal to 1 the Laplacian matrix is easy...
-        L = np.eye(self.n)-A
+        L = np.eye(self.n)*np.sum(A, axis = 1) - A
+        
         L = np.array(L)
         self.Logistic_Adjacency = A
         XY = np.zeros((T,self.n))
-        XY[0,:] = np.random.rand(self.n)
+        XY[0,:] = rng.random(self.n)
         for i in range(1,T):
             XY[i,:] = self.Logistic_Map(XY[i-1,:],r)-sigma*np.dot(L,self.Logistic_Map(XY[i-1,:],r)).T
             
